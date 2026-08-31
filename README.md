@@ -18,3 +18,30 @@
 ## 环境依赖
 ```bash
 pip install -r requirements.txt
+# Experiment 1: Object Detection and Recognition
+
+> 
+> Two‑class desktop object detection: bottle, mouse
+> Deployment Platform: PC + Jetson
+> Framework: YOLOv8 + ROS2 Humble
+
+## Project Description
+
+1. Dataset: Self‑collected desktop objects combined with public mouse dataset from Roboflow. Split into training set / validation set at a ratio of 8:2.
+2. Model: YOLOv8‑s, trained weight file `best.pt` (Download link: xxx)
+3. Functions
+
+- Real‑time camera‑based detection on PC; draw bounding boxes, object classes and confidence scores on frames.
+- ROS2 node running on Jetson; publish detection results in JSON format via ROS2 topic `/yolo_detections`.
+- Save normal test outputs and typical error cases.
+
+4. Acceptance Criteria
+
+- Support simultaneous recognition of two object classes; recognition accuracy ≥80% for 20 test objects.
+- Real‑time inference FPS on Jetson ≥5 FPS.
+
+## Dependencies
+
+```
+pip install -r requirements.txt
+```
