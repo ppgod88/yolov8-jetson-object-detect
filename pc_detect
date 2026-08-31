@@ -1,1 +1,45 @@
+from ultralytics import YOLO
+import cv2
+import time
+
+model_path = r"C:\Users\gaoying\Desktop\runs\detect\train\weights\best.pt"
+conf_thresh = 0.2
+camera_id = 0
+
+model = YOLO(model_path)
+cap = cv2.VideoCapture(camera_id)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+if not cap.isOpened():
+    print("摄像头打开失败，请修改camera_id")
+    exit()
+
+print("实时检测启动，按 q 退出窗口")
+
+prev_time = time.time()
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        print("读取画面失败")
+        break
+
+    results = model(frame, conf=conf_thresh)
+    draw_frame = results[0].plot()
+
+    # 计算FPS
+    curr_time = time.time()
+    fps = 1.0 / (curr_time - prev_time)
+    prev_time = curr_time
+    # 在画面左上角绘制FPS数值
+    cv2.putText(draw_frame, f"FPS:{fps:.1f}", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0),2)
+
+    cv2.imshow("Bottle & Mouse Real‑Time Detect", draw_frame)
+
+    key = cv2.waitKey(1) & 0xFF
+    if key == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
 
