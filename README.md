@@ -18,14 +18,14 @@
 ## 环境依赖
 ```bash
 pip install -r requirements.txt
-# Experiment 1: Object Detection and Recognition
+### Experiment 1: Object Detection and Recognition
 
 > 
 > Two‑class desktop object detection: bottle, mouse
 > Deployment Platform: PC + Jetson
 > Framework: YOLOv8 + ROS2 Humble
 
-## Project Description
+### Project Description
 
 1. Dataset: Self‑collected desktop objects combined with public mouse dataset from Roboflow. Split into training set / validation set at a ratio of 8:2.
 2. Model: YOLOv8‑s, trained weight file `best.pt` (Download link: xxx)
