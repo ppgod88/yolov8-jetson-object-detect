@@ -1,0 +1,146 @@
+import rclpy
+from rclpy.node import Node
+import cv2
+from ultralytics import YOLO
+
+from sensor_msgs.msg import Image
+from yolo_interfaces.msg import Detection, DetectionArray
+from std_msgs.msg import Header
+
+
+class GyYoloTrtDetector(Node):
+    def __init__(self):
+        super().__init__("gy_yolo_trt_node")
+
+        # ROS参数声明
+        self.declare_parameter("model_path", "/home/nvidia/yolo_deploy/models/gy_last.engine")
+        self.declare_parameter("video_device", 0)
+        self.declare_parameter("conf_threshold", 0.25)
+        self.declare_parameter("output_video_path", "/home/nvidia/yolo_deploy/result.mp4")
+
+        self.model_path = self.get_parameter("model_path").get_parameter_value().string_value
+        self.video_dev = self.get_parameter("video_device").get_parameter_value().integer_value
+        self.conf_thresh = self.get_parameter("conf_threshold").get_parameter_value().double_value
+        self.output_video_path = self.get_parameter("output_video_path").get_parameter_value().string_value
+
+        self.get_logger().info(f"模型路径: {self.model_path}")
+        self.get_logger().info(f"摄像头设备: {self.video_dev}, 置信阈值: {self.conf_thresh}")
+        self.get_logger().info(f"结果视频保存到: {self.output_video_path}")
+
+        # 加载TensorRT模型
+        self.model = YOLO(self.model_path)
+
+        # 打开USB摄像头
+        self.cap = cv2.VideoCapture(self.video_dev)
+        if not self.cap.isOpened():
+            self.get_logger().error(f"摄像头 {self.video_dev} 打开失败")
+            raise RuntimeError(f"camera {self.video_dev} open failed")
+
+        # 丢弃初始空帧
+        self.get_logger().info("摄像头预热，丢弃初始空帧...")
+        for _ in range(15):
+            self.cap.read()
+
+        # 获取画面尺寸，初始化视频录制器
+        ret, frame = self.cap.read()
+        img_h, img_w = frame.shape[:2]
+        self.fps = 30.0
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        self.video_writer = cv2.VideoWriter(self.output_video_path, fourcc, self.fps, (img_w, img_h))
+
+        # 发布器
+        self.pub_detections = self.create_publisher(DetectionArray, "/gy/detections", 10)
+        self.pub_image = self.create_publisher(Image, "/gy/detect_image", 10)
+
+
+        self.class_names = ["bottle", "mouse"]
+
+
+        # 30Hz定时器
+        timer_period = 1.0 / self.fps
+        self.timer = self.create_timer(timer_period, self.timer_callback)
+
+    def frame_to_imgmsg(self, frame):
+
+        img_msg = Image()
+        img_msg.header = Header()
+        img_msg.header.stamp = self.get_clock().now().to_msg()
+        img_msg.header.frame_id = "gy_camera"
+        img_msg.height = frame.shape[0]
+        img_msg.width = frame.shape[1]
+        img_msg.encoding = "bgr8"
+        img_msg.step = frame.shape[1] * 3
+        img_msg.data = frame.tobytes()
+        return img_msg
+
+    def timer_callback(self):
+        ret, frame = self.cap.read()
+        if not ret or frame is None or len(frame.shape) != 3:
+            return
+
+        img_h, img_w = frame.shape[:2]
+        # YOLO推理
+        results = self.model(frame, conf=self.conf_thresh, verbose=False)
+        img_draw = frame.copy()
+
+        # 组装检测结果消息
+        det_array_msg = DetectionArray()
+        det_array_msg.header.stamp = self.get_clock().now().to_msg()
+        det_array_msg.image_width = img_w
+        det_array_msg.image_height = img_h
+        det_array_msg.fps = self.fps
+
+        for res in results:
+            boxes = res.boxes
+            for box in boxes:
+                conf = float(box.conf[0])
+                cls_id = int(box.cls[0])
+                # 坐标强转原生int，匹配消息定义
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+
+                # 绘制检测框和标签
+                cv2.rectangle(img_draw, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                label = f"{self.class_names[cls_id]} {conf:.2f}"
+                cv2.putText(img_draw, label, (x1, y1 - 6),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+                # 填充单条检测消息
+                det_msg = Detection()
+                det_msg.class_id = cls_id
+                det_msg.class_name = self.class_names[cls_id]
+                det_msg.confidence = conf
+                det_msg.xmin = x1
+                det_msg.ymin = y1
+                det_msg.xmax = x2
+                det_msg.ymax = y2
+                det_array_msg.detections.append(det_msg)
+
+        # 写入结果视频
+        self.video_writer.write(img_draw)
+
+        # 发布检测结果和带框画面
+        self.pub_detections.publish(det_array_msg)
+        img_msg = self.frame_to_imgmsg(img_draw)
+        self.pub_image.publish(img_msg)
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = None
+    try:
+        node = GyYoloTrtDetector()
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    except RuntimeError as e:
+        print(f"节点启动失败: {e}")
+    finally:
+        if node is not None:
+            node.cap.release()
+            node.video_writer.release()  # 释放视频文件
+            node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()
